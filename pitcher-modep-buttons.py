@@ -2,6 +2,7 @@
 """Read Pisound Micro buttons and send MIDI CCs to MODEP."""
 
 import glob
+import os
 import signal
 import time
 
@@ -10,7 +11,7 @@ import rtmidi
 from gpiod.line import Bias, Direction, Value
 
 
-BUTTONS = (("B03", 20), ("B07", 21), ("B11", 22), ("B15", 23))
+BUTTONS = (("B03", 20), ("B05", 21), ("B07", 22), ("B09", 23))
 CHANNEL = 0
 DEBOUNCE_SECONDS = 0.025
 POLL_SECONDS = 0.005
@@ -45,7 +46,7 @@ def find_button_chip():
             chip.close()
         if names.issubset(offsets):
             return path, {name: offsets[name] for name, _ in BUTTONS}
-    raise RuntimeError("GPIO lines B03/B07/B11/B15 were not found.")
+    raise RuntimeError("GPIO lines B03/B05/B07/B09 were not found.")
 
 
 def main():
@@ -77,8 +78,24 @@ def main():
     midi_open = False
     try:
         midi = rtmidi.MidiOut(rtmidi.API_LINUX_ALSA, "Lezart-Boutons")
-        midi.open_virtual_port("Lezart-Boutons")
+        destination = os.environ.get("MIDI_OUTPUT_PORT")
+        destination_port = None
+        if destination:
+            matches = [
+                (index, port)
+                for index, port in enumerate(midi.get_ports())
+                if port.rsplit(" ", 1)[0] == destination
+            ]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"Expected one MIDI destination {destination!r}, found {len(matches)}."
+                )
+            index, destination_port = matches[0]
+            midi.open_port(index, "Lezart-Boutons")
+        else:
+            midi.open_virtual_port("Lezart-Boutons")
         midi_open = True
+        next_port_check = time.monotonic() + 1
         buttons = [
             Button(value == Value.ACTIVE)
             for value in gpio.get_values(offsets)
@@ -91,6 +108,10 @@ def main():
 
         while running:
             now = time.monotonic()
+            if destination_port is not None and now >= next_port_check:
+                if destination_port not in midi.get_ports():
+                    raise RuntimeError(f"MIDI destination disconnected: {destination!r}")
+                next_port_check = now + 1
             values = gpio.get_values(offsets)
             for index, ((name, cc), value) in enumerate(zip(BUTTONS, values)):
                 pressed = buttons[index].update(value == Value.ACTIVE, now)

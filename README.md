@@ -7,19 +7,20 @@ pedalboard.
 
 ## Hardware and mapping
 
-The buttons use the GPIO lines named `B03`, `B07`, `B11`, and `B15`. Each line
+The buttons use the GPIO lines named `B03`, `B05`, `B07`, and `B09`. Each line
 is configured as an active-low input with a pull-up; the button is considered
 pressed when its line is active.
 
 | Button | MIDI message |
 | --- | --- |
 | B03 | Channel 1, CC20: 127 while pressed, 0 on release |
-| B07 | Channel 1, CC21: 127 while pressed, 0 on release |
-| B11 | Channel 1, CC22: 127 while pressed, 0 on release |
-| B15 | Channel 1, CC23: 127 while pressed, 0 on release |
+| B05 | Channel 1, CC21: 127 while pressed, 0 on release |
+| B07 | Channel 1, CC22: 127 while pressed, 0 on release |
+| B09 | Channel 1, CC23: 127 while pressed, 0 on release |
 
-The bridge opens an ALSA virtual MIDI output named `Lezart-Boutons`. Learn the
-corresponding CC on a MODEP parameter to assign a button.
+By default the bridge opens an ALSA virtual MIDI output named `Lezart-Boutons`.
+MODEP filters out this software-only port. For MODEP MIDI Learn, use the
+`amidithru` relay below, which JACK exposes as a physical MIDI port.
 
 ## Debounce
 
@@ -75,33 +76,35 @@ value 0 on release after debounce.
 
 ## systemd
 
-After the foreground test succeeds, a system service can run the installed
-script. Adapt `User` and device permissions to the local Pi configuration:
-
-```ini
-[Unit]
-Description=Pisound Micro GPIO to MIDI bridge
-After=local-fs.target
-
-[Service]
-Type=simple
-User=lezart
-ExecStart=/usr/local/bin/pitcher-modep-buttons
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Save as `/etc/systemd/system/pitcher-modep-buttons.service`, then enable and
-start it:
+The supplied units use MODEP's existing `/usr/bin/amidithru` utility, also used
+for TouchOSC and require systemd 249 or newer (`Upholds=`). Check that it is
+installed. Adapt `User=lezart` and device
+permissions in both units to the local Pi configuration, then install:
 
 ```sh
+sudo install -m 0755 pitcher-modep-buttons.py /usr/local/bin/pitcher-modep-buttons
+sudo install -m 0644 pitcher-modep-buttons.service pitcher-modep-midi.service /etc/systemd/system/
+sudo systemctl disable --now pisound-micro-mapper.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now pitcher-modep-buttons.service
-sudo systemctl status pitcher-modep-buttons.service
+sudo systemctl enable --now pitcher-modep-midi.service pitcher-modep-buttons.service
+sudo systemctl status pitcher-modep-midi.service pitcher-modep-buttons.service
 ```
+
+`MIDI_OUTPUT_PORT=Lezart-Buttons-MODEP:Lezart-Buttons-MODEP` selects the relay
+by its exact ALSA client/port name, without hard-coding a client number.
+Unset this variable for standalone virtual-port mode. Missing or ambiguous
+destinations fail explicitly; systemd retries startup. The bridge checks
+the destination once per second and exits on disconnection so systemd can
+reconnect it after a relay restart. `BindsTo=` stops the bridge when the relay
+stops, and `Upholds=` starts it again once the relay is running. This also
+reconnects fast restarts where ALSA reuses the same client number.
+Stop both units together when intentionally stopping the buttons.
+
+In MODEP aggregated MIDI mode, the relay should appear as
+`Lezart Buttons MODEP MIDI 1 (in+out)` and connect automatically to
+`mod-midi-merger:in`. JACK port numbers can change; check aliases rather than
+assuming `system:midi_capture_N` remains constant. No periodic reboot or
+pedalboard edit is required.
 
 Only one process can request these GPIO lines. Do not run the Mapper and this
 bridge together.
@@ -111,7 +114,7 @@ bridge together.
 Stop and disable the bridge, then restore the Mapper:
 
 ```sh
-sudo systemctl disable --now pitcher-modep-buttons.service
+sudo systemctl disable --now pitcher-modep-buttons.service pitcher-modep-midi.service
 sudo systemctl enable --now pisound-micro-mapper.service
 ```
 
@@ -119,7 +122,12 @@ The bridge does not edit the Mapper configuration or the MODEP pedalboard.
 
 ## Current validation status
 
-The code and its GPIO/MIDI configuration are documented here, but this
-repository does not claim a successful physical-button test. Verify GPIO
-ownership, the virtual ALSA MIDI port, all four CCs, and MODEP MIDI Learn on
-the target Pi before relying on it.
+All four buttons (B03/CC20, B05/CC21, B07/CC22, B09/CC23) have produced
+physical press/release messages in `aseqdump` on the target Pi, routed
+through the `amidithru` relay and visible to MODEP. The original B11/B13/B15
+wiring reproducibly failed to register any transition even with the bridge's
+debounce disabled and with a direct, isolated GPIO read — pointing to a wiring
+issue rather than a software bug. The button hardware itself tested fine with
+a multimeter. Relay discovery and automatic merger routing have been observed
+without restarting audio. End-to-end MIDI Learn still requires a
+physical-button check in MODEP.

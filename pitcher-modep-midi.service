@@ -1,0 +1,15 @@
+[Unit]
+Description=MODEP hardware-visible MIDI relay for GPIO buttons
+After=sound.target
+Upholds=pitcher-modep-buttons.service
+
+[Service]
+Type=simple
+User=lezart
+SupplementaryGroups=audio
+ExecStart=/usr/bin/amidithru Lezart-Buttons-MODEP
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
