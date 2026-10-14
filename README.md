@@ -22,6 +22,39 @@ By default the bridge opens an ALSA virtual MIDI output named `Lezart-Boutons`.
 MODEP filters out this software-only port. For MODEP MIDI Learn, use the
 `amidithru` relay below, which JACK exposes as a physical MIDI port.
 
+## Wiring
+
+Pisound Micro exposes its GPIO pins on two headers, A and B. The buttons used
+here are on **Header B**, which has 2 rows of 20 pins (pin 1 marked with a
+square pad). Only the odd-numbered pins (top row) are used, to keep wiring on
+a single row:
+
+| Header B pin | Line  | Connect to                  |
+| ------------- | ----- | ---------------------------- |
+| 1              | +3.3V | not used by this wiring       |
+| 2              | GND   | common ground for all 4 buttons |
+| 3              | B03   | Button 1, other leg to pin 2 (GND) |
+| 5              | B05   | Button 2, other leg to pin 2 (GND) |
+| 7              | B07   | Button 3, other leg to pin 2 (GND) |
+| 9              | B09   | Button 4, other leg to pin 2 (GND) |
+
+Each button is a simple momentary switch wired between its GPIO pin and a
+ground pin (pin 2, or any other GND on Header B, e.g. pin 20 or 22). No
+external resistor is needed: the bridge enables the internal pull-up on each
+line in software, and treats the line as active (pressed) when pulled low by
+the switch closing to GND.
+
+Pins B11 through B18 (and B23 upward) are free for additional buttons,
+encoders, or potentiometers if the project is extended; see the official
+[Pisound Micro Header B pinout](https://blokas.io/pisound-micro/docs/detailed-specs/#pinouts)
+for the full list and the ADC/encoder pin groups.
+
+If a button appears "stuck" (its line never toggles, or always reads as
+pressed, even with the hardware confirmed good with a multimeter), check for
+a short to GND elsewhere on the wiring before assuming a GPIO pin is at
+fault — see [Current validation status](#current-validation-status) below for
+how this was diagnosed on the reference build.
+
 ## Debounce
 
 The script samples the GPIO lines every 5 ms. A press or release is emitted
